@@ -22,7 +22,7 @@ object Build extends AutoPlugin {
     reformatOnCompileSettings ++
     Vector(
            // Core settings
-           organization := "de.heikoseeberger", 
+           organization := "de.heikoseeberger",
            licenses += ("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0")),
            mappings.in(Compile, packageBin) += baseDirectory.in(ThisBuild).value / "LICENSE" -> "LICENSE",
            scalaVersion := Version.Scala,
@@ -36,6 +36,8 @@ object Build extends AutoPlugin {
            ),
            unmanagedSourceDirectories.in(Compile) := Vector(scalaSource.in(Compile).value),
            unmanagedSourceDirectories.in(Test) := Vector(scalaSource.in(Test).value),
+           publishArtifact.in(packageDoc) := false, // to speed up building Docker images
+           publishArtifact.in(packageSrc) := false, // to speed up building Docker images
 
            // scalafmt settings
            formatSbtFiles := false,
