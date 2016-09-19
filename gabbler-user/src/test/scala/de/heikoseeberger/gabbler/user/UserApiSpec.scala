@@ -18,6 +18,7 @@ package de.heikoseeberger.gabbler.user
 
 import akka.actor.ActorRef
 import akka.http.scaladsl.model.StatusCodes.{
+  BadRequest,
   Conflict,
   Created,
   NoContent,
@@ -26,16 +27,21 @@ import akka.http.scaladsl.model.StatusCodes.{
 }
 import akka.http.scaladsl.model.headers.Location
 import akka.http.scaladsl.testkit.ScalatestRouteTest
+import akka.stream.scaladsl.Source
 import akka.testkit.{ TestActor, TestDuration, TestProbe }
 import akka.util.Timeout
 import de.heikoseeberger.akkahttpcirce.CirceSupport
-import org.scalatest.{ Matchers, WordSpec }
+import de.heikoseeberger.akkasse.headers.`Last-Event-ID`
+import de.heikoseeberger.akkasse.{ EventStreamUnmarshalling, ServerSentEvent }
+import org.scalatest.{ AsyncWordSpec, Matchers, Succeeded }
 import scala.concurrent.duration.DurationInt
 
-class UserApiSpec extends WordSpec with Matchers with ScalatestRouteTest {
+class UserApiSpec extends AsyncWordSpec with Matchers with ScalatestRouteTest {
   import CirceSupport._
+  import EventStreamUnmarshalling._
   import UserRepository._
   import io.circe.generic.auto._
+  import io.circe.syntax._
 
   private implicit val timeout = Timeout(1.second.dilated)
 
@@ -49,6 +55,7 @@ class UserApiSpec extends WordSpec with Matchers with ScalatestRouteTest {
       )
       probe.watch(userApi)
       probe.expectTerminated(userApi)
+      Succeeded
     }
   }
 
@@ -133,6 +140,63 @@ class UserApiSpec extends WordSpec with Matchers with ScalatestRouteTest {
       Delete(s"/users/$id") ~> UserApi(userRepository.ref) ~> check {
         status shouldBe NoContent
       }
+    }
+  }
+
+  "respond to a valid GET /user-events with an OK" in {
+    val userRepository = TestProbe(): TestProbe
+    userRepository.setAutoPilot(new TestActor.AutoPilot {
+      override def run(sender: ActorRef, msg: Any) = msg match {
+        case GetUserEvents(1) =>
+          sender ! UserEvents(
+            Source(Vector((1L, UserAdded(user)), (2L, UserRemoved(user))))
+          )
+          TestActor.NoAutoPilot
+      }
+    })
+    Get("/user-events") ~> UserApi(userRepository.ref) ~> check {
+      status shouldBe OK
+      val userEvents = responseAs[Source[ServerSentEvent, Any]]
+      userEvents
+        .take(2)
+        .runFold(Vector.empty[ServerSentEvent])(_ :+ _)
+        .map(
+          _ shouldBe Vector(
+            ServerSentEvent(user.asJson.noSpaces, "user-added", "1"),
+            ServerSentEvent(user.asJson.noSpaces, "user-removed", "2")
+          )
+        )
+    }
+  }
+
+  "respond to a valid GET /user-events with a Last-Event-ID with an OK" in {
+    val userRepository = TestProbe(): TestProbe
+    userRepository.setAutoPilot(new TestActor.AutoPilot {
+      override def run(sender: ActorRef, msg: Any) = msg match {
+        case GetUserEvents(2) =>
+          sender ! UserEvents(Source(Vector((2L, UserRemoved(user)))))
+          TestActor.NoAutoPilot
+      }
+    })
+    val request = Get("/user-events").withHeaders(`Last-Event-ID`("1"))
+    request ~> UserApi(userRepository.ref) ~> check {
+      status shouldBe OK
+      val eventSource = responseAs[Source[ServerSentEvent, Any]]
+      eventSource
+        .take(2)
+        .runFold(Vector.empty[ServerSentEvent])(_ :+ _)
+        .map(
+          _ shouldBe Vector(
+            ServerSentEvent(user.asJson.noSpaces, "user-removed", "2")
+          )
+        )
+    }
+  }
+
+  "respond to a GET /user-events with an invalid Last-Event-ID with an BadRequest" in {
+    val request = Get("/user-events").withHeaders(`Last-Event-ID`("x"))
+    request ~> UserApi(system.deadLetters) ~> check {
+      status shouldBe BadRequest
     }
   }
 }
