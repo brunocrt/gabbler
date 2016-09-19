@@ -21,4 +21,5 @@ docker run \
   --name gabbler-user-${n} \
   --publish 800${n}:8000 \
   hseeberger/gabbler-user:${tag} \
-  -Dcassandra-journal.contact-points.0=${HOST}:9042
+  -Dcassandra-journal.contact-points.0=${HOST}:9042 \
+  -Dconstructr.coordination.host=${HOST}
