@@ -16,9 +16,15 @@
 
 package de.heikoseeberger.gabbler.user
 
+import akka.NotUsed
 import akka.actor.{ Actor, ActorLogging, ActorSystem, Props, SupervisorStrategy, Terminated }
-import scala.concurrent.Await
-import scala.concurrent.duration.Duration
+import akka.cluster.Cluster
+import akka.cluster.singleton.{
+  ClusterSingletonManager,
+  ClusterSingletonManagerSettings,
+  ClusterSingletonProxy,
+  ClusterSingletonProxySettings
+}
 
 object UserApp {
 
@@ -26,7 +32,19 @@ object UserApp {
 
     override val supervisorStrategy = SupervisorStrategy.stoppingStrategy
 
-    private val userRepository = context.actorOf(UserRepository(), UserRepository.Name)
+    private val userRepository = {
+      val userRepository = context.actorOf(
+        ClusterSingletonManager.props(UserRepository(),
+                                      NotUsed,
+                                      ClusterSingletonManagerSettings(context.system)),
+        UserRepository.Name
+      )
+      context.actorOf(
+        ClusterSingletonProxy.props(userRepository.path.elements.mkString("/", "/", ""),
+                                    ClusterSingletonProxySettings(context.system)),
+        s"${UserRepository.Name}-proxy"
+      )
+    }
 
     private val userApi = {
       val config  = context.system.settings.config
@@ -49,6 +67,6 @@ object UserApp {
 
   def main(args: Array[String]): Unit = {
     val system = ActorSystem("gabbler-user")
-    system.actorOf(Props(new Root), "root")
+    Cluster(system).registerOnMemberUp(system.actorOf(Props(new Root), "root"))
   }
 }
