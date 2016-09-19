@@ -25,6 +25,8 @@ import akka.cluster.singleton.{
   ClusterSingletonProxy,
   ClusterSingletonProxySettings
 }
+import akka.persistence.cassandra.query.scaladsl.CassandraReadJournal
+import akka.persistence.query.PersistenceQuery
 
 object UserApp {
 
@@ -33,12 +35,16 @@ object UserApp {
     override val supervisorStrategy = SupervisorStrategy.stoppingStrategy
 
     private val userRepository = {
-      val userRepository = context.actorOf(
-        ClusterSingletonManager.props(UserRepository(),
-                                      NotUsed,
-                                      ClusterSingletonManagerSettings(context.system)),
-        UserRepository.Name
-      )
+      val readJournal =
+        PersistenceQuery(context.system)
+          .readJournalFor[CassandraReadJournal](CassandraReadJournal.Identifier)
+      val userRepository =
+        context.actorOf(
+          ClusterSingletonManager.props(UserRepository(readJournal),
+                                        NotUsed,
+                                        ClusterSingletonManagerSettings(context.system)),
+          UserRepository.Name
+        )
       context.actorOf(
         ClusterSingletonProxy.props(userRepository.path.elements.mkString("/", "/", ""),
                                     ClusterSingletonProxySettings(context.system)),
