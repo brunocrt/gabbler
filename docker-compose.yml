@@ -1,10 +1,19 @@
 version: '2'
 
 services:
+  gabbler-chat:
+    image: hseeberger/gabbler-chat:latest
+    ports:
+      - "8010:8000"
+    command: [
+      "-Dcassandra-journal.contact-points.0=cassandra:9042",
+      "-Dconstructr.coordination.host=etcd",
+      "-Dgabbler-chat.user-repository.user-events=http://gabbler-user:8000/user-events"
+    ]
   gabbler-user:
     image: hseeberger/gabbler-user:latest
     ports:
-      - "8000"
+      - "8000:8000"
     command: [
       "-Dcassandra-journal.contact-points.0=cassandra:9042",
       "-Dconstructr.coordination.host=etcd"
