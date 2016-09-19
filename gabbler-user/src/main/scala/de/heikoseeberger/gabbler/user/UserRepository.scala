@@ -100,9 +100,11 @@ final class UserRepository(readJournal: EventsByPersistenceIdQuery)
 
   private def handleGetUserEvents(fromSeqNo: Long) = {
     val userEvents =
-      readJournal.eventsByPersistenceId(Name, fromSeqNo, Long.MaxValue).map {
-        case EventEnvelope(_, _, seqNo, event: UserEvent) => seqNo -> event
-      }
+      readJournal
+        .eventsByPersistenceId(Name, fromSeqNo, Long.MaxValue)
+        .collect {
+          case EventEnvelope(_, _, seqNo, event: UserEvent) => seqNo -> event
+        }
     sender() ! UserEvents(userEvents)
   }
 }
