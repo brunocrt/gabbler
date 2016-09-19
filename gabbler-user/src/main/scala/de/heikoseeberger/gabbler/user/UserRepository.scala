@@ -16,8 +16,12 @@
 
 package de.heikoseeberger.gabbler.user
 
+import akka.NotUsed
 import akka.actor.{ ActorLogging, Props }
 import akka.persistence.PersistentActor
+import akka.persistence.query.EventEnvelope
+import akka.persistence.query.scaladsl.EventsByPersistenceIdQuery
+import akka.stream.scaladsl.Source
 
 object UserRepository {
 
@@ -26,23 +30,31 @@ object UserRepository {
                         nickname: String,
                         email: String)
 
+  sealed trait UserEvent
+
   final case object GetUsers
   final case class Users(users: Set[User])
 
   final case class AddUser(username: String, nickname: String, email: String)
   final case class UsernameTaken(username: String)
-  final case class UserAdded(user: User)
+  final case class UserAdded(user: User) extends UserEvent
 
   final case class RemoveUser(id: Long)
   final case class IdUnknown(id: Long)
-  final case class UserRemoved(user: User)
+  final case class UserRemoved(user: User) extends UserEvent
+
+  final case class GetUserEvents(fromSeqNo: Long)
+  final case class UserEvents(userEvents: Source[(Long, UserEvent), NotUsed])
 
   final val Name = "user-repository"
 
-  def props: Props = Props(new UserRepository)
+  def props(readJournal: EventsByPersistenceIdQuery): Props =
+    Props(new UserRepository(readJournal))
 }
 
-final class UserRepository extends PersistentActor with ActorLogging {
+final class UserRepository(readJournal: EventsByPersistenceIdQuery)
+    extends PersistentActor
+    with ActorLogging {
   import UserRepository._
 
   override val persistenceId = Name
@@ -53,6 +65,7 @@ final class UserRepository extends PersistentActor with ActorLogging {
     case GetUsers         => sender() ! Users(users.valuesIterator.to[Set])
     case AddUser(u, n, e) => handleAddUser(u, n, e)
     case RemoveUser(i)    => handleRemoveUser(i)
+    case GetUserEvents(n) => handleGetUserEvents(n)
   }
 
   override def receiveRecover = {
@@ -83,5 +96,13 @@ final class UserRepository extends PersistentActor with ActorLogging {
       case None    => sender() ! IdUnknown(id)
       case Some(u) => remove(u)
     }
+  }
+
+  private def handleGetUserEvents(fromSeqNo: Long) = {
+    val userEvents =
+      readJournal.eventsByPersistenceId(Name, fromSeqNo, Long.MaxValue).map {
+        case EventEnvelope(_, _, seqNo, event: UserEvent) => seqNo -> event
+      }
+    sender() ! UserEvents(userEvents)
   }
 }

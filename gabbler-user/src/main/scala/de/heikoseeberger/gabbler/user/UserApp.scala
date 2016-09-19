@@ -32,6 +32,8 @@ import akka.cluster.singleton.{
   ClusterSingletonProxy,
   ClusterSingletonProxySettings
 }
+import akka.persistence.cassandra.query.scaladsl.CassandraReadJournal
+import akka.persistence.query.PersistenceQuery
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
 
@@ -44,7 +46,12 @@ object UserApp {
     private val userRepository = {
       val userRepository = context.actorOf(
         ClusterSingletonManager.props(
-          UserRepository.props,
+          UserRepository.props(
+            PersistenceQuery(context.system)
+              .readJournalFor[CassandraReadJournal](
+                CassandraReadJournal.Identifier
+              )
+          ),
           NotUsed,
           ClusterSingletonManagerSettings(context.system)
         ),
